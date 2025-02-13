@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'credentials',
     'chat',
     'groups',
+    'DM'
 ]
 
 MIDDLEWARE = [
