@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Groups</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h2 {
+            color: #333;
+        }
+        #groupsContainer {
+            max-width: 500px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .group-item {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        button {
+            padding: 8px 16px;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 14px;
+            margin: 5px;
+        }
+        .join-btn {
+            background-color: #007bff;
+            color: white;
+        }
+        .enter-btn {
+            background-color: #28a745;
+            color: white;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+            color: white;
+        }
+        #logoutBtn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background-color: #6c757d;
+    color: white;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+    </style>
+</head>
+<body>
+    <h2>Available Groups</h2>
+    <div id="groupsContainer">Loading groups...</div>
+    <button id="logoutBtn" onclick="handleLogout()">Logout</button>
+
+    <script>
+        const API_BASE_URL = "http://127.0.0.1:8000";
+        const ACCESS_TOKEN = sessionStorage.getItem("access_token");
+        let CURRENT_USER_ID = null;
+        let CURRENT_USER = "";
+        let CURRENT_ROLE = "";
+
+        async function handleLogout() {
+            // Clear session storage
+            sessionStorage.removeItem("access_token");
+            // Redirect to login page
+            window.location.href = `${API_BASE_URL}/accounts/login/page`;
+        }
+
+        async function fetchCurrentUser() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/accounts/current`, {
+                    method: "GET",
+                    headers: {
+                        "Authorization": `Bearer ${ACCESS_TOKEN}`
+                    }
+                });
+
+                if (!response.ok) throw new Error("Failed to fetch user");
+
+                const data = await response.json();
+                CURRENT_USER = data.username;
+                CURRENT_ROLE = data.role;
+                CURRENT_USER_ID = data.user_id;
+                
+                console.log("User:", CURRENT_USER, "Role:", CURRENT_ROLE, "ID:", CURRENT_USER_ID);
+                fetchGroups();
+
+            } catch (error) {
+                console.error("Authentication failed:", error);
+                window.location.href = `${API_BASE_URL}/accounts/login/page`;
+            }
+        }
+
+        async function checkGroupMembership(groupId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/groups/${groupId}/members`, {
+                    method: "GET",
+                    headers: {
+                        "Authorization": `Bearer ${ACCESS_TOKEN}`
+                    }
+                });
+
+                if (!response.ok) return false;
+
+                const members = await response.json();
+                return members.some(member => member.user_id === CURRENT_USER_ID);
+            } catch (error) {
+                console.error("Error checking membership:", error);
+                return false;
+            }
+        }
+
+        async function fetchGroups() {
+            const groupsContainer = document.getElementById("groupsContainer");
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/groups/`, {
+                    method: "GET",
+                    headers: {
+                        "Authorization": `Bearer ${ACCESS_TOKEN}`,
+                        "Content-Type": "application/json"
+                    }
+                });
+
+                if (!response.ok) throw new Error("Failed to fetch groups");
+
+                const groups = await response.json();
+                groupsContainer.innerHTML = "";
+
+                if (groups.length === 0) {
+                    groupsContainer.innerHTML = "<p>No groups available.</p>";
+                    return;
+                }
+
+                for (const group of groups) {
+                    const groupDiv = document.createElement("div");
+                    groupDiv.classList.add("group-item");
+
+                    const isOwner = group.owner_name === CURRENT_USER;
+                    const isMember = await checkGroupMembership(group.id);
+
+                    groupDiv.innerHTML = `
+                        <p><strong>${group.name}</strong> (Owner: ${group.owner_name})</p>
+                        <button id="btn-${group.id}" 
+                                class="${isOwner || isMember ? 'enter-btn' : 'join-btn'}"
+                                onclick="handleGroupAction(${group.id}, '${isOwner || isMember ? 'enter' : 'join'}')">
+                            ${isOwner || isMember ? "Enter" : "Join"}
+                        </button>
+                        ${isOwner ? `<button class="delete-btn" onclick="deleteGroup(${group.id})">Delete</button>` : ""}
+                    `;
+
+                    groupsContainer.appendChild(groupDiv);
+                }
+
+            } catch (error) {
+                console.error("Error:", error);
+                groupsContainer.innerHTML = `<p style="color: red;">Error loading groups.</p>`;
+            }
+        }
+
+        async function handleGroupAction(groupId, action) {
+            if (action === 'enter') {
+                window.location.href = `${API_BASE_URL}/chat/group/${groupId}/`;
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/groups/${groupId}/members/add/`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${ACCESS_TOKEN}`,
+                        "Content-Type": "application/json"
+                    }
+                });
+
+                if (!response.ok) throw new Error("Failed to join group");
+
+                // Update button immediately
+                const button = document.getElementById(`btn-${groupId}`);
+                button.innerText = "Enter";
+                button.classList.remove("join-btn");
+                button.classList.add("enter-btn");
+                button.onclick = () => handleGroupAction(groupId, 'enter');
+
+                // Redirect to chat
+                window.location.href = `${API_BASE_URL}/chat/group/${groupId}/`;
+
+            } catch (error) {
+                alert("Error joining group.");
+            }
+        }
+
+        async function deleteGroup(groupId) {
+            if (!confirm("Are you sure you want to delete this group?")) return;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/groups/${groupId}/`, {
+                    method: "DELETE",
+                    headers: {
+                        "Authorization": `Bearer ${ACCESS_TOKEN}`,
+                        "Content-Type": "application/json"
+                    }
+                });
+
+                if (!response.ok) throw new Error("Failed to delete group");
+
+                alert("Group deleted successfully!");
+                fetchGroups();
+
+            } catch (error) {
+                alert("Error deleting group.");
+            }
+        }
+
+        fetchCurrentUser();
+    </script>
+</body>
+</html>
